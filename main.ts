@@ -1,24 +1,33 @@
-// Writes this day's news image to the output directory the grader reads.
+// Puts the finished news page where the grader looks for it.
 //
-// The image itself is data: it is drawn from the stories of 24 November 2026
-// and lives beside this file as entry.png. This program copies it into
-// /output/entry.png (or MAKEFUN_OUTPUT_DIR when it runs outside the grader's
-// container) and writes nothing else.
+// The artwork is data rather than code. It was laid out by render.mjs from
+// news.json (see README.md for the whole pipeline) and it ships as
+// entry.png sitting next to this file. All this program does is carry those
+// exact bytes into the output directory and report how many it wrote.
 //
-// The grader runs the program twice and both runs must write the same bytes,
-// so this copies a file rather than drawing anything: the output is the
-// input, byte for byte.
+// The grader runs the program twice and both runs have to produce the same
+// bytes, so nothing here may vary between runs: no clock, no randomness, no
+// drawing. A plain copy is the honest way to guarantee that, because the
+// output is then the input, byte for byte.
+//
+// Node 22.18 or later, standard library only, TypeScript run directly.
 
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const outFile = join(outDir, 'entry.png');
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SOURCE = join(HERE, 'entry.png');
 
-mkdirSync(outDir, { recursive: true });
-copyFileSync(join(here, 'entry.png'), outFile);
+// The grader runs this inside its own container and sets MAKEFUN_OUTPUT_DIR
+// to the directory it collects from. Outside the grader the same variable
+// lets a person point the program somewhere of their own choosing.
+const OUTPUT_DIR = process.env['MAKEFUN_OUTPUT_DIR']?.trim() || '/output';
+const DESTINATION = join(OUTPUT_DIR, 'entry.png');
 
-const { size } = await import('node:fs').then((fs) => fs.statSync(outFile));
-console.log(`wrote ${outFile} (${size} bytes)`);
+// The directory may not exist yet, so make it, parents included.
+mkdirSync(OUTPUT_DIR, { recursive: true });
+copyFileSync(SOURCE, DESTINATION);
+
+const written = statSync(DESTINATION).size;
+console.log(`wrote ${written} bytes to ${DESTINATION}`);

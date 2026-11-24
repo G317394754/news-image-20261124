@@ -99,19 +99,27 @@
       "region": "ASIA-PACIFIC",
       "accent": "#0891b2",
       "icon": "rocket",
-      "headline": "A Pakistani astronaut to fly on China's Shenzhou-24, the first foreigner aboard a Chinese station mission"
+      "headline": "A Pakistani astronaut to fly on China's Shenzhou-24"
     },
     {
       "region": "LATIN AMERICA",
       "accent": "#0d9488",
       "icon": "flood",
-      "headline": "Severe flooding hits the Galapagos Islands amid El Nino concerns"
+      "headline": "Flooding hits the Galapagos Islands amid El Nino concerns"
     },
     {
       "region": "AFRICA",
       "accent": "#a16207",
       "icon": "fire",
-      "headline": "Flames engulf beachfront hotels in Zanzibar as workers are trapped at an Indonesian factory fire"
+      "headline": "Six Zanzibar hotels gutted as flames sweep Nungwi Beach",
+      "detail": "About 180 tourists were evacuated safely from the six hotels on Tanzania's Zanzibar island; an investigation is under way."
+    },
+    {
+      "region": "SOUTHEAST ASIA",
+      "accent": "#7c2d12",
+      "icon": "factory",
+      "headline": "Search continues for workers trapped after an Indonesian factory fire",
+      "detail": "Families wait for word on dozens of workers who never came home after flames swept a candy factory west of Jakarta."
     }
   ],
   "footer": "Compiled from reports filed on 24 November 2026 by Reuters, AP, AFP, the UN, ESA and public broadcasters."

@@ -28,7 +28,8 @@ const ICONS = {
   return: '<path d="M27 16a11 11 0 1 1-4-8.4"/><path d="M27 4v6h-6"/>',
   rocket: '<path d="M16 3c5 4 7 9 7 14l-4 5h-6l-4-5c0-5 2-10 7-14z"/><circle cx="16" cy="12" r="2.6"/><path d="M9 17l-4 3 1 5 5-2M23 17l4 3-1 5-5-2"/>',
   flood: '<path d="M3 20c3-3 6 3 9 0s6 3 9 0 6 3 8 0"/><path d="M3 26c3-3 6 3 9 0s6 3 9 0 6 3 8 0"/><path d="M12 16l4-9 4 9z"/>',
-  fire: '<path d="M16 3c5 5 7 8 7 13a7 7 0 1 1-14 0c0-3 2-5 4-7 0 3 1 4 2 4 1-3 0-7 1-10z"/>'
+  fire: '<path d="M16 3c5 5 7 8 7 13a7 7 0 1 1-14 0c0-3 2-5 4-7 0 3 1 4 2 4 1-3 0-7 1-10z"/>',
+  factory: '<path d="M3 28V16l7 4v-4l7 4v-4l7 4v8z"/><path d="M7 22v2M12 22v2M17 22v2M22 22v2"/><path d="M12 16V8h8v8"/>'
 };
 
 const icon = (name, x, y, size, color) =>
@@ -81,14 +82,14 @@ function measure(s) {
   const maxChars = big ? 27 : 26;
   const lines = wrap(s.headline, maxChars);
   const lh = bigLH(lines.length);
-  const detSize = big ? 13 : 12.5;
+  const detSize = big ? 12.5 : 12;
   const detMax = big ? 50 : 47;
   const detLines = wrap(s.detail, detMax);
   // The header band holds the mark and the region label; the headline
   // starts below it and the detail below the headline.
   const headTop = 48;
   const headH = headTop + lines.length * lh + 8;
-  const h = headH + detLines.length * (detSize + 3) + 11;
+  const h = headH + detLines.length * (detSize + 2.5) + 9;
   return { fs, lines, lh, detSize, detMax, detLines, headH, h, headTop };
 }
 
@@ -102,7 +103,7 @@ function measure(s) {
 function card(s, x, y, w, h) {
   const accent = s.accent;
   const m = measure(s);
-  const maxDetLines = Math.max(1, Math.floor((y + h - 10 - (y + m.headH)) / (m.detSize + 3)));
+  const maxDetLines = Math.max(1, Math.floor((y + h - 8 - (y + m.headH)) / (m.detSize + 2.5)));
   const detLines = clampDetail(s.detail, maxDetLines, m.detMax);
   const headY = y + m.headTop;
   const detY = y + m.headH;
@@ -115,7 +116,7 @@ function card(s, x, y, w, h) {
     <text x="${x + 38}" y="${y + 24}" font-family="Georgia, 'Times New Roman', serif" font-size="10.5" font-weight="700" letter-spacing="1.6" fill="${accent}">${esc(s.region)}</text>
     <text x="${x + w - 16}" y="${y + 24}" text-anchor="end" font-family="Georgia, serif" font-size="10" font-weight="700" fill="#a8b0bd">${s.rank}</text>
     ${m.lines.map((l, i) => `<text x="${x + 15}" y="${headY + i * m.lh}" font-family="Georgia, 'Times New Roman', serif" font-size="${m.fs}" font-weight="700" fill="#14181f">${esc(l)}</text>`).join('')}
-    ${detLines.map((l, i) => `<text x="${x + 15}" y="${detY + i * (m.detSize + 3)}" font-family="Helvetica, Arial, sans-serif" font-size="${m.detSize}" fill="#4a5261">${esc(l)}</text>`).join('')}
+    ${detLines.map((l, i) => `<text x="${x + 15}" y="${detY + i * (m.detSize + 2.5)}" font-family="Helvetica, Arial, sans-serif" font-size="${m.detSize}" fill="#4a5261">${esc(l)}</text>`).join('')}
   </g>`;
 }
 
@@ -135,10 +136,9 @@ rows.push([small[0], small[1]]);
 
 const mastH = 92;
 const footerH = 30;
-const GAP = 9;
+const GAP = 8;
 
 // The strip rides at the foot of the last row, inside the page's width.
-const stripH = 50;
 const stripOffset = 5;
 
 let y = 0;
@@ -151,17 +151,20 @@ for (let r = 0; r < rows.length; r++) {
   y += h + GAP;
 }
 
-// --- Strip: three one-line items under the last row.
+// --- Strip: the remaining stories, four columns, under the last row.
 const stripY = y + stripOffset - GAP;
+const stripH = 72;
 body += `<rect x="${M}" y="${stripY}" width="${W - M * 2}" height="${stripH}" rx="7" fill="#f2f4f8" stroke="#d5d9e0" stroke-width="1.2"/>`;
+const stripCols = strip.length;
+const stripColW = (W - M * 2 - 24) / stripCols;
 strip.forEach((s, i) => {
-  const cw = (W - M * 2 - 24) / 3;
-  const cx = M + 12 + i * cw;
-  body += icon(s.icon, cx, stripY + 11, 18, s.accent);
-  body += `<text x="${cx + 25}" y="${stripY + 18}" font-family="Georgia, serif" font-size="9" font-weight="700" letter-spacing="1.2" fill="${s.accent}">${esc(s.region)}</text>`;
-  const lines = wrap(s.headline, 33).slice(0, 3);
-  lines.forEach((ln, i) => {
-    body += `<text x="${cx + 25}" y="${stripY + 30 + i * 10.5}" font-family="Helvetica, Arial, sans-serif" font-size="9" fill="#4a5261">${esc(ln)}</text>`;
+  const cx = M + 12 + i * stripColW;
+  const cy = stripY + 12;
+  body += icon(s.icon, cx, cy, 19, s.accent);
+  body += `<text x="${cx + 24}" y="${cy + 8}" font-family="Georgia, serif" font-size="8.5" font-weight="700" letter-spacing="0.9" fill="${s.accent}">${esc(s.region)}</text>`;
+  const lines = wrap(s.headline, 25).slice(0, 3);
+  lines.forEach((ln, j) => {
+    body += `<text x="${cx + 24}" y="${cy + 21 + j * 11}" font-family="Helvetica, Arial, sans-serif" font-size="9" fill="#4a5261">${esc(ln)}</text>`;
   });
 });
 
@@ -171,8 +174,8 @@ strip.forEach((s, i) => {
 const bodyBottom = stripY + stripH;
 const footerY = H - footerH + 6 - mastH;
 const fill = footerY - bodyBottom;
-if (fill < 10) {
-  console.error(`layout overflows: ${-fill}px past the footer line`);
+if (fill < 6) {
+  console.error(`layout overflows: ${6 - fill}px past the footer line`);
   process.exit(3);
 }
 body += `<line x1="${M}" y1="${footerY}" x2="${W - M}" y2="${footerY}" stroke="#c9cfd8" stroke-width="1"/>`;
