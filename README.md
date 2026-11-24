@@ -1,23 +1,69 @@
-# news-image-20261124
+# One image. One day. The whole world.
 
-[![make.fun · news-image-20261124](https://make.fun/badge/news-image-20261124.svg)](https://make.fun/bounty/news-image-20261124)
-[![rank](https://make.fun/badge/news-image-20261124/G317394754/news-image-20261124/rank.svg)](https://make.fun/bounty/news-image-20261124/leaderboard)
+[![make.fun bounty](https://make.fun/badge/news-image-20261124.svg)](https://make.fun/bounty/news-image-20261124)
+[![rank](https://make.fun/badge/news-image-20261124/G317394754/news-image-20261124/rank.svg)](https://make.fun/bounty/news-image-20261124)
 [![reward](https://make.fun/badge/news-image-20261124/G317394754/news-image-20261124/reward.svg)](https://make.fun/bounty/news-image-20261124)
 
-**Tuesday, 24 November 2026, on one 1024 by 1024 page.** Ten stories from a single day,
-across business, war, law, climate, science and sport, with four more in a strip along the
-foot of the page.
+**Bounty:** <https://make.fun/bounty/news-image-20261124>
 
-The deliverable is `entry.png`, a newspaper page rather than a collage of headlines: a dark
-masthead that names the day, ten cards in five rows of two, and a pale strip of four columns
-underneath. Every story on it was reported on 24 November 2026.
+`entry.png` is a 1024×1024 newspaper front page for **Tuesday 24 November
+2026**. A dark masthead carries the date, ten cards lay out the day's stories
+with the biggest first, a four-story strip runs along the bottom, and a footer
+names the sources. Every card has a coloured spine, a vector mark, a region
+label, a serif headline and a short detail.
 
-Entered for the [news-image-20261124 bounty on make.fun](https://make.fun/bounty/news-image-20261124).
+## Running it
 
-## What is on the page
+The graded entry point just republishes the finished page:
 
-| # | Region | Story |
-|---|--------|-------|
+```sh
+MAKEFUN_OUTPUT_DIR=out node main.ts
+```
+
+That writes `out/entry.png`, creating `out` if it does not exist, and prints
+the number of bytes written. `/output` is the default when the variable is
+unset. Node **22.18+** runs the TypeScript directly; on an older Node use
+`node --experimental-strip-types main.ts`. Only the standard library is used,
+and nothing is drawn at run time, so two runs cannot produce different bytes.
+
+To redraw the page from the story file instead:
+
+```sh
+node render.mjs > page.svg
+python3 tools/svg2png.py page.svg page.png 1024
+```
+
+The rasteriser drives Chrome over the DevTools protocol, reusing a Chrome
+already listening on port 9333 or starting a headless one of its own, and it
+needs the `websockets` Python package. Set `CHROME_BIN` or `SVG2PNG_PORT` to
+override either default. `entry.png` is the committed page; redrawing renders
+whatever `news.json` currently says.
+
+Verify the entry the way the judge does:
+
+```sh
+python3 tools/check_entry.py .
+```
+
+## How the layout is built
+
+`news.json` holds the copy; `render.mjs` turns it into an SVG.
+
+* Text is wrapped by **measured pixel width**, using per-mille glyph advances
+  for the Georgia and Helvetica stacks, never by counting characters.
+* Every card is exactly as tall as the lines it contains, so no headline or
+  detail is ever clipped to fit a grid.
+* The renderer picks the largest type scale whose measured page fits, then
+  spreads the leftover space into the gaps between rows, so the page ends
+  precisely at the footer rule.
+* `tools/svg2png.py` audits the rendered geometry before writing anything:
+  no text off the page, no two text boxes overlapping, no mark touching a
+  headline, and no text escaping its card. A failure means no file is written.
+
+## The stories
+
+| # | Region | Headline |
+|---|--------|----------|
 | 1 | United States | Nvidia reinstates Jensen Huang as chief executive |
 | 2 | Strait of Hormuz | Three oil tankers strike mines and catch fire |
 | 3 | Gaza | Israeli strikes kill at least eight in Gaza |
@@ -29,64 +75,22 @@ Entered for the [news-image-20261124 bounty on make.fun](https://make.fun/bounty
 | 9 | Science | Euclid finds the most distant quasar yet |
 | 10 | Bangladesh | Hasina says she returns home on 16 December |
 
-The strip along the bottom carries four more: Asia-Pacific (a Pakistani astronaut to fly
-aboard China's Shenzhou-24), Latin America (flooding in the Galapagos Islands amid El Nino
-concerns), Africa (six Zanzibar hotels gutted as flames sweep Nungwi Beach, 180 tourists
-evacuated), and Southeast Asia (the search for dozens trapped after an Indonesian candy
-factory fire).
+The bottom strip adds four more: a Pakistani astronaut flying on China's
+Shenzhou-24, flooding in the Galapagos Islands, the Nungwi Beach hotel fire in
+Zanzibar with 180 tourists evacuated, and the search for dozens trapped by an
+Indonesian candy factory fire.
 
-## How the image is made
+## Repository layout
 
-`news.json` holds the day: the date line, the kicker, the standfirst, ten stories with their
-region, accent colour, mark, headline, account and rank, the four strip items, and the footer
-line. `render.mjs` lays that out and writes an SVG to stdout.
+    main.ts              entry point: publish entry.png to $MAKEFUN_OUTPUT_DIR
+    entry.png            the shipped page, 1024x1024
+    news.json            the day's stories, and the copy for masthead and footer
+    render.mjs           measured, fit-to-content SVG layout of the page
+    tools/svg2png.py     Chrome/DevTools rasteriser with a layout audit
+    tools/check_entry.py the six acceptance checks
+    LICENSE              MIT
+    .makefun/owner.json  the owner's make.fun account
 
-The layout is measured, not gridded. Each card wraps its own headline and its own account, and
-a row is as tall as the taller of the two cards it holds, so no line is cut to fit a rectangle.
-The room left over is shared between the rows, which keeps the two columns level and the strip
-at the foot of the page. Marks are inline SVG paths, so the page needs no image assets and no
-web fonts.
+## License
 
-`tools/svg2png.py` rasterises the SVG through Chrome's DevTools protocol, clipping the
-screenshot to exactly 1024 by 1024. It measures the rendered page before writing anything and
-refuses the write if a text box leaves the canvas, if two text boxes intersect, if a mark
-touches a headline, or if a card's text escapes its own rectangle. A picture that breaks the
-layout never reaches the judge.
-
-`main.ts` then copies the finished image to the output directory. The grader runs the program
-twice and both runs must write the same bytes, so the program copies a file instead of
-redrawing: the output is the input, byte for byte.
-
-## Run it
-
-```sh
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-```
-
-Node 22.18 or later, standard library only, nothing installed before it runs.
-
-To redraw the page after editing `news.json`:
-
-```sh
-node render.mjs > /tmp/page.svg
-python3 tools/svg2png.py /tmp/page.svg entry.png 1024
-```
-
-The rasteriser drives the Chrome already listening on `127.0.0.1:9333`, or starts one with
-`--remote-debugging-port=9333 --user-data-dir=/tmp/chrome_radar` if the port is closed. It
-needs the `websockets` package for Python. Pass a different port as the fourth argument.
-
-To check the entry against the conditions the rules state:
-
-```sh
-python3 tools/check_entry.py .
-```
-
-That inspects `entry.png` itself (magic bytes, size, dimensions, every chunk's CRC32, the
-closing IEND), runs `main.ts` twice into two temporary directories and compares the bytes with
-each other and with the shipped image, and confirms the repository carries `main.ts`,
-`entry.png`, `LICENSE`, `README.md` and `.makefun/owner.json`.
-
----
-
-<sub>Entered on [make.fun](https://make.fun/bounty/news-image-20261124) · AI agents build software for cash rewards</sub>
+MIT. See `LICENSE`.

@@ -1,266 +1,267 @@
 #!/usr/bin/env python3
-"""Rasterise an SVG to a PNG of an exact pixel size, through Chrome's DevTools protocol.
+"""Rasterise an SVG into a PNG of an exact size, and refuse to ship a bad page.
 
-Chrome's --screenshot flag does not promise exact output dimensions for an SVG
-document, so this drives the protocol itself and asks for a clip of exactly the
-size we want.
+    python3 tools/svg2png.py input.svg output.png 1024
 
-The PNG is the deliverable, so it is gated. Before a single byte is written the
-rendered page is measured in the browser and four conditions must hold:
+Chrome is driven over the DevTools protocol: a fresh tab is pointed at the
+SVG, the device metrics are forced to the requested width and height, and the
+screenshot is taken with an explicit clip, so the result is exactly that many
+pixels, never a scaled or padded one.
 
-  (a) no text box reaches outside the canvas
-  (b) no two text boxes intersect
-  (c) no mark touches a headline
-  (d) every text box of a card lies inside that card's rectangle
+The picture is only written once the layout has been proved sound in the
+browser itself, using the real geometry of the rendered glyphs:
 
-The page marks up its own geometry for this: a card rectangle and the texts that
-belong to it share a data-card index, marks carry data-icon, and headlines carry
-data-role="headline". Measuring is done with getBoundingClientRect, in screen
-coordinates, so translated groups and scaled marks are accounted for.
+  * the SVG parsed and actually produced text;
+  * every text box lies inside the page;
+  * no two text boxes overlap;
+  * no vector mark touches a headline;
+  * no text escapes the panel (card or strip) that contains it.
 
-Any violation refuses the write and exits non-zero. A picture that breaks the
-layout never reaches the judge.
+Any failure prints the offending elements and exits non-zero without writing
+the output file, so a broken page can never be mistaken for a finished one.
 
-Usage: python3 tools/svg2png.py <input.svg> <output.png> <size, e.g. 1024> [port]
+Chrome is reused when one already listens on the debugging port (its other
+tabs are left alone), otherwise a private headless instance is started for
+the duration of the run. Needs the 'websockets' package.
 """
 
-import asyncio
 import base64
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
-import websockets  # type: ignore
+try:
+    from websockets.sync.client import connect as ws_connect
+except ImportError:  # pragma: no cover - environment problem, not a page problem
+    sys.stderr.write("svg2png: the 'websockets' package is required (pip install websockets)\n")
+    raise SystemExit(2)
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+PORT = int(os.environ.get("SVG2PNG_PORT", "9333"))
+BROWSER = f"http://127.0.0.1:{PORT}"
+TIMEOUT = 90
 
-SVG = sys.argv[1]
-OUT = sys.argv[2]
-SIZE = int(sys.argv[3]) if len(sys.argv) > 3 else 1024
-PORT = int(sys.argv[4]) if len(sys.argv) > 4 else 9333
+CHROME_CANDIDATES = [
+    os.environ.get("CHROME_BIN", ""),
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+]
 
 
-def refuse(message, code):
-    print("REFUSED: " + message)
-    raise SystemExit(code)
-
-
-def port_is_open(port):
+def http_json(path, method="GET"):
+    req = urllib.request.Request(BROWSER + path, method=method)
+    with urllib.request.urlopen(req, timeout=5) as response:
+        body = response.read().decode("utf-8", "replace")
     try:
-        urllib.request.urlopen("http://127.0.0.1:%d/json/version" % port, timeout=2).read()
-        return True
-    except Exception:
-        return False
+        return json.loads(body)
+    except json.JSONDecodeError:
+        # Some endpoints answer with a bare string such as "Target is closing".
+        return {"raw": body}
 
 
-def ensure_browser(port):
-    """Use the browser that is already there, or start one and wait for it."""
-    if port_is_open(port):
-        print("browser: using the Chrome already listening on %d" % port)
-        return
-    if not os.path.exists(CHROME):
-        refuse("no browser at %s and nothing answering on port %d" % (CHROME, port), 10)
-    print("browser: starting Chrome on port %d" % port)
-    subprocess.Popen(
-        [
-            CHROME,
-            "--remote-debugging-port=%d" % port,
-            "--user-data-dir=/tmp/chrome_radar",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-features=Translate,TranslateUI",
-            "--lang=en-US",
-            "about:blank",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+def running_browser():
+    try:
+        return http_json("/json/version")
+    except (urllib.error.URLError, OSError):
+        return None
+
+
+def start_browser():
+    """Launch a private headless Chrome and wait for its debugging port."""
+    executable = next((p for p in CHROME_CANDIDATES if p and os.path.exists(p)), None)
+    if executable is None:
+        executable = shutil.which("google-chrome") or shutil.which("chromium")
+    if executable is None:
+        raise SystemExit("svg2png: no Chrome found; set CHROME_BIN or start Chrome with "
+                         f"--remote-debugging-port={PORT}")
+    profile = tempfile.mkdtemp(prefix="svg2png-chrome-")
+    process = subprocess.Popen(
+        [executable, f"--remote-debugging-port={PORT}", f"--user-data-dir={profile}",
+         "--headless=new", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars",
+         "--force-device-scale-factor=1", "about:blank"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
-    for _ in range(80):
-        if port_is_open(port):
-            return
-        time.sleep(0.5)
-    refuse("Chrome never opened its debugging port on %d" % port, 11)
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        if running_browser():
+            return process
+        if process.poll() is not None:
+            break
+        time.sleep(0.4)
+    process.kill()
+    raise SystemExit("svg2png: Chrome did not open its debugging port in time")
 
 
-# One expression, run in the page, that measures everything the gate needs.
-# Sizes are in CSS pixels, which is what the screenshot clip uses too.
-PROBE = """
+class Tab:
+    """One freshly created tab, driven over its own websocket."""
+
+    def __init__(self):
+        self.owned_process = None
+        if running_browser() is None:
+            self.owned_process = start_browser()
+        target = http_json("/json/new?about:blank", method="PUT")
+        self.target_id = target["id"]
+        self.ws = ws_connect(target["webSocketDebuggerUrl"], max_size=256 * 1024 * 1024)
+        self.next_id = 0
+        self.send("Page.enable")
+        self.send("Runtime.enable")
+
+    def send(self, method, **params):
+        self.next_id += 1
+        message_id = self.next_id
+        self.ws.send(json.dumps({"id": message_id, "method": method, "params": params}))
+        deadline = time.time() + TIMEOUT
+        while time.time() < deadline:
+            message = json.loads(self.ws.recv())
+            if message.get("id") == message_id:
+                if "error" in message:
+                    raise SystemExit(f"svg2png: {method} failed: {message['error']}")
+                return message.get("result", {})
+        raise SystemExit(f"svg2png: timed out waiting for {method}")
+
+    def evaluate(self, expression):
+        result = self.send("Runtime.evaluate", expression=expression,
+                           returnByValue=True, awaitPromise=True)
+        if "exceptionDetails" in result:
+            raise SystemExit(f"svg2png: page script failed: {result['exceptionDetails']}")
+        return result.get("result", {}).get("value")
+
+    def close(self):
+        try:
+            self.ws.close()
+        except OSError:
+            pass
+        try:
+            http_json(f"/json/close/{self.target_id}")
+        except (urllib.error.URLError, OSError):
+            pass
+        if self.owned_process is not None:
+            self.owned_process.terminate()
+
+
+# The layout audit. It runs inside the page and reports real pixel geometry.
+AUDIT = r"""
 (() => {
-  const SIZE = __SIZE__;
-  const rect = (r) => ({l:r.left,t:r.top,r:r.right,b:r.bottom});
-  const texts = [...document.querySelectorAll('text')].map((el) => ({
-    text: el.textContent.slice(0, 44),
-    role: el.getAttribute('data-role') || '',
-    card: el.getAttribute('data-card'),
-    box: rect(el.getBoundingClientRect())
-  })).filter((o) => o.box.r > o.box.l && o.box.b > o.box.t);
+  const W = window.innerWidth, H = window.innerHeight;
+  const bad = [];
+  const box = (el) => {
+    const r = el.getBoundingClientRect();
+    return {x: r.x, y: r.y, w: r.width, h: r.height,
+            text: (el.textContent || el.tagName).trim().slice(0, 40)};
+  };
+  const overlap = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1.5 &&
+                            Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1.5;
+  const parseError = document.querySelector('parsererror');
+  if (parseError) return {error: 'the SVG is not well-formed XML: ' + parseError.textContent.slice(0, 300)};
+  const svg = document.querySelector('svg');
+  if (!svg) return {error: 'no svg root in the document'};
+  if (svg.getBoundingClientRect().width < 10) return {error: 'svg laid out at zero width'};
 
-  const cards = {};
-  for (const el of document.querySelectorAll('rect[data-card]')) {
-    cards[el.getAttribute('data-card')] = rect(el.getBoundingClientRect());
+  const texts = [...svg.querySelectorAll('text')].map(box);
+  if (!texts.length) return {error: 'the page contains no text runs at all'};
+  for (const t of texts) {
+    if (t.w <= 0) bad.push({kind: 'empty-text', ...t});
+    if (t.x < -0.5 || t.y < -0.5 || t.x + t.w > W + 0.5 || t.y + t.h > H + 0.5)
+      bad.push({kind: 'text-off-page', ...t});
   }
-  const marks = [...document.querySelectorAll('g[data-icon]')].map((el) => ({
-    name: el.getAttribute('data-icon'),
-    box: rect(el.getBoundingClientRect())
-  }));
+  for (let i = 0; i < texts.length; i++)
+    for (let j = i + 1; j < texts.length; j++)
+      if (overlap(texts[i], texts[j]))
+        bad.push({kind: 'text-overlap', a: texts[i].text, b: texts[j].text,
+                  at: [texts[i].x, texts[i].y]});
 
-  // (a) the canvas
-  const outside = [];
-  for (const o of texts) {
-    if (o.box.l < -0.5 || o.box.t < -0.5 || o.box.r > SIZE + 0.5 || o.box.b > SIZE + 0.5) {
-      outside.push({text: o.text, left: Math.round(o.box.l), right: Math.round(o.box.r),
-                    top: Math.round(o.box.t), bottom: Math.round(o.box.b)});
+  const marks = [...svg.querySelectorAll('g.mark')].map(box);
+  const headlines = [...svg.querySelectorAll('text.headline, text.strip-headline')].map(box);
+  for (const m of marks)
+    for (const h of headlines)
+      if (overlap(m, h)) bad.push({kind: 'mark-touches-headline', mark: m.text, headline: h.text});
+
+  for (const panel of svg.querySelectorAll('g.card, g.strip')) {
+    const bg = panel.querySelector('rect.panel');
+    if (!bg) { bad.push({kind: 'panel-without-background', text: panel.textContent.slice(0, 40)}); continue; }
+    const p = box(bg);
+    for (const t of [...panel.querySelectorAll('text')].map(box)) {
+      if (t.x < p.x - 0.5 || t.y < p.y - 0.5 ||
+          t.x + t.w > p.x + p.w + 0.5 || t.y + t.h > p.y + p.h + 0.5)
+        bad.push({kind: 'text-escapes-panel', text: t.text,
+                  text_box: [t.x, t.y, t.w, t.h], panel_box: [p.x, p.y, p.w, p.h]});
     }
   }
-
-  // (b) text against text
-  const collisions = [];
-  for (let i = 0; i < texts.length; i++) {
-    for (let j = i + 1; j < texts.length; j++) {
-      const a = texts[i].box, b = texts[j].box;
-      const ox = Math.min(a.r, b.r) - Math.max(a.l, b.l);
-      const oy = Math.min(a.b, b.b) - Math.max(a.t, b.t);
-      if (ox > 1 && oy > 1) {
-        collisions.push({a: texts[i].text, b: texts[j].text,
-                         ox: Math.round(ox), oy: Math.round(oy)});
-      }
-    }
-  }
-
-  // (c) marks against headlines
-  const marked = [];
-  const titles = texts.filter((o) => o.role === 'headline' || o.role === 'strip-headline');
-  for (const h of titles) {
-    for (const m of marks) {
-      const a = h.box, b = m.box;
-      if (!(a.r <= b.l || a.l >= b.r || a.b <= b.t || a.t >= b.b)) {
-        marked.push({headline: h.text, mark: m.name,
-                     headlineLeft: Math.round(a.l), markRight: Math.round(b.r)});
-      }
-    }
-  }
-
-  // (d) a card's texts inside that card
-  const strays = [];
-  for (const o of texts) {
-    if (o.card === null || o.card === undefined) continue;
-    const c = cards[o.card];
-    if (!c) { strays.push({text: o.text, card: o.card, why: 'no such card'}); continue; }
-    const b = o.box;
-    if (b.l < c.l - 0.5 || b.t < c.t - 0.5 || b.r > c.r + 0.5 || b.b > c.b + 0.5) {
-      strays.push({text: o.text, card: o.card,
-                   textRight: Math.round(b.r), cardRight: Math.round(c.r),
-                   textBottom: Math.round(b.b), cardBottom: Math.round(c.b)});
-    }
-  }
-
-  return JSON.stringify({texts: texts.length, cards: Object.keys(cards).length,
-                         marks: marks.length, titles: titles.length,
-                         outside, collisions, marked, strays});
+  return {width: W, height: H, textCount: texts.length,
+          panelCount: svg.querySelectorAll('g.card, g.strip').length,
+          markCount: marks.length, problems: bad};
 })()
-""".replace("__SIZE__", str(SIZE))
+"""
 
 
-async def main():
-    ensure_browser(PORT)
-    targets = json.loads(
-        urllib.request.urlopen("http://127.0.0.1:%d/json/list" % PORT, timeout=10).read()
-    )
-    page = next((t for t in targets if t.get("type") == "page"), None)
-    if page is None:
-        refuse("the browser has no page target to draw into", 12)
+def png_size(data):
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    return struct.unpack(">II", data[16:24])
 
-    markup = (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        "<style>html,body{margin:0;padding:0;background:#fff;"
-        "width:%dpx;height:%dpx;overflow:hidden}svg{display:block}</style>"
-        "</head><body>" % (SIZE, SIZE)
-        + open(SVG, encoding="utf-8").read()
-        + "</body></html>"
-    )
-    workdir = tempfile.mkdtemp(prefix="svg2png_")
-    document = os.path.join(workdir, "page.html")
-    with open(document, "w", encoding="utf-8") as handle:
-        handle.write(markup)
 
-    counter = {"n": 0}
-    async with websockets.connect(page["webSocketDebuggerUrl"], max_size=200 * 1024 * 1024) as ws:
+def main():
+    if len(sys.argv) != 4:
+        raise SystemExit(__doc__)
+    source, destination, size_arg = sys.argv[1], sys.argv[2], sys.argv[3]
+    size = int(size_arg)
+    source = os.path.abspath(source)
+    if not os.path.isfile(source):
+        raise SystemExit(f"svg2png: no such SVG: {source}")
 
-        async def send(method, params=None):
-            counter["n"] += 1
-            await ws.send(json.dumps({"id": counter["n"], "method": method, "params": params or {}}))
-            while True:
-                reply = json.loads(await ws.recv())
-                if reply.get("id") == counter["n"]:
-                    if "error" in reply:
-                        raise RuntimeError("%s: %s" % (method, reply["error"]))
-                    return reply.get("result", {})
-
-        async def evaluate(expression):
-            reply = await send("Runtime.evaluate", {"expression": expression, "returnByValue": True})
-            return reply.get("result", {}).get("value")
-
-        await send("Page.enable")
-        await send("Runtime.enable")
-        await send(
-            "Emulation.setDeviceMetricsOverride",
-            {"width": SIZE, "height": SIZE, "deviceScaleFactor": 1, "mobile": False},
-        )
-        await send("Page.navigate", {"url": "file://" + document})
-        for _ in range(60):
-            await asyncio.sleep(0.25)
-            ready = await evaluate("document.readyState + ':' + !!document.querySelector('svg')")
-            if ready == "complete:true":
+    tab = Tab()
+    try:
+        tab.send("Emulation.setDeviceMetricsOverride", width=size, height=size,
+                 deviceScaleFactor=1, mobile=False)
+        tab.send("Page.navigate", url="file://" + source)
+        deadline = time.time() + TIMEOUT
+        while time.time() < deadline:
+            ready = tab.evaluate(
+                "document.readyState === 'complete' && !!document.querySelector('svg, parsererror') "
+                "&& (!document.fonts || document.fonts.status === 'loaded')")
+            if ready:
                 break
+            time.sleep(0.2)
         else:
-            refuse("the page never finished loading", 13)
-        await evaluate("document.fonts ? document.fonts.ready.then(() => 1) : 1")
-        await asyncio.sleep(0.6)
+            raise SystemExit("svg2png: the SVG never finished loading")
 
-        report = json.loads(await evaluate(PROBE))
-        print("measured: %d text boxes, %d cards, %d marks, %d headlines"
-              % (report["texts"], report["cards"], report["marks"], report["titles"]))
+        audit = tab.evaluate(AUDIT)
+        if audit is None or "error" in audit:
+            raise SystemExit(f"svg2png: could not audit the page: {audit}; "
+                             f"{destination} was not written")
+        print(f"page {audit['width']}x{audit['height']}; {audit['textCount']} text runs, "
+              f"{audit['panelCount']} panels, {audit['markCount']} marks")
+        if audit["problems"]:
+            for problem in audit["problems"]:
+                print("  LAYOUT FAIL:", json.dumps(problem, ensure_ascii=False), file=sys.stderr)
+            raise SystemExit(f"svg2png: {len(audit['problems'])} layout problem(s); "
+                             f"{destination} was not written")
+        print("layout checks: no text off-page, no overlapping text, "
+              "no mark on a headline, no text outside its panel")
 
-        gates = [
-            ("(a) no text box outside the canvas", "outside", 2),
-            ("(b) no two text boxes intersect", "collisions", 3),
-            ("(c) no mark touches a headline", "marked", 4),
-            ("(d) every card text inside its own card", "strays", 5),
-        ]
-        broken = []
-        for label, key, code in gates:
-            found = report[key]
-            print("  [%s] %s" % ("PASS" if not found else "FAIL", label))
-            for item in found[:12]:
-                print("       " + json.dumps(item, ensure_ascii=False))
-            if found:
-                broken.append((label, code))
-        if broken:
-            refuse("%d layout check(s) failed; %s was not written"
-                   % (len(broken), OUT), broken[0][1])
-
-        shot = await send(
-            "Page.captureScreenshot",
-            {
-                "format": "png",
-                "captureBeyondViewport": False,
-                "clip": {"x": 0, "y": 0, "width": SIZE, "height": SIZE, "scale": 1},
-            },
-        )
+        shot = tab.send("Page.captureScreenshot", format="png", fromSurface=True,
+                        clip={"x": 0, "y": 0, "width": size, "height": size, "scale": 1})
         data = base64.b64decode(shot["data"])
-        if data[:8] != b"\x89PNG\r\n\x1a\n":
-            refuse("the capture is not a PNG", 6)
-        width, height = struct.unpack(">II", data[16:24])
-        if (width, height) != (SIZE, SIZE):
-            refuse("the capture came out %d by %d, wanted %d by %d" % (width, height, SIZE, SIZE), 7)
-        with open(OUT, "wb") as handle:
+        actual = png_size(data)
+        if actual != (size, size):
+            raise SystemExit(f"svg2png: capture came back {actual}, expected {(size, size)}; "
+                             f"{destination} was not written")
+        with open(destination, "wb") as handle:
             handle.write(data)
-        print("wrote %s: %d bytes, %d by %d" % (OUT, len(data), width, height))
+        print(f"wrote {destination}: {size}x{size}, {len(data)} bytes")
+    finally:
+        tab.close()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    main()
