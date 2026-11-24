@@ -8,8 +8,8 @@
       "region": "UNITED STATES",
       "accent": "#2563eb",
       "icon": "chip",
-      "headline": "Nvidia reinstates Jensen Huang as CEO",
-      "detail": "The board reverses itself after Trump pressed for it. Shares jump 31.5%, adding more than $1.5 trillion in value.",
+      "headline": "Nvidia reinstates Jensen Huang as chief executive",
+      "detail": "The board reverses course after Trump presses it; shares jump 31.5%, adding more than $1.5 trillion in value.",
       "big": true
     },
     {
@@ -17,8 +17,8 @@
       "region": "STRAIT OF HORMUZ",
       "accent": "#dc2626",
       "icon": "tanker",
-      "headline": "Three oil tankers hit mines and catch fire",
-      "detail": "Iran says it will use \"all available means\" against a US naval blockade, and will not talk until seven conditions are met.",
+      "headline": "Three oil tankers strike mines and catch fire",
+      "detail": "Iran vows to use \"all available means\" against a US naval blockade, and will not talk until seven conditions are met.",
       "big": true
     },
     {
@@ -27,7 +27,7 @@
       "accent": "#b45309",
       "icon": "burst",
       "headline": "Israeli strikes kill at least eight in Gaza",
-      "detail": "Three separate strikes, one on a police station in Khan Younis. A UNRWA worker is among the dead.",
+      "detail": "Three separate strikes, one on a police station in Khan Younis; a UNRWA worker is among the dead.",
       "big": true
     },
     {
@@ -44,7 +44,7 @@
       "region": "EUROPEAN UNION",
       "accent": "#0f766e",
       "icon": "stars",
-      "headline": "22nd sanctions package on Russia",
+      "headline": "A 22nd sanctions package lands on Russia",
       "detail": "About 60 Russian banks and more than 70 vessels targeted, with bans on Russian athletes and ex-combatant visas.",
       "big": true
     },
@@ -54,7 +54,7 @@
       "accent": "#15803d",
       "icon": "globe",
       "headline": "COP31 ends in Antalya with no agreement",
-      "detail": "The first UN climate summit to fail in 17 years, after two weeks of talks. Parties trade blame.",
+      "detail": "The first UN climate summit to fail in 17 years, after two weeks of talks; the parties trade blame.",
       "big": true
     },
     {
@@ -99,7 +99,7 @@
       "region": "ASIA-PACIFIC",
       "accent": "#0891b2",
       "icon": "rocket",
-      "headline": "A Pakistani astronaut to fly on China's Shenzhou-24"
+      "headline": "A Pakistani astronaut to fly aboard China's Shenzhou-24"
     },
     {
       "region": "LATIN AMERICA",
@@ -111,15 +111,13 @@
       "region": "AFRICA",
       "accent": "#a16207",
       "icon": "fire",
-      "headline": "Six Zanzibar hotels gutted as flames sweep Nungwi Beach",
-      "detail": "About 180 tourists were evacuated safely from the six hotels on Tanzania's Zanzibar island; an investigation is under way."
+      "headline": "Six Zanzibar hotels gutted as flames sweep Nungwi Beach; 180 tourists evacuated, inquiry under way"
     },
     {
       "region": "SOUTHEAST ASIA",
       "accent": "#7c2d12",
       "icon": "factory",
-      "headline": "Search continues for workers trapped after an Indonesian factory fire",
-      "detail": "Families wait for word on dozens of workers who never came home after flames swept a candy factory west of Jakarta."
+      "headline": "Search continues for dozens trapped after an Indonesian candy factory fire; families wait for word"
     }
   ],
   "footer": "Compiled from reports filed on 24 November 2026 by Reuters, AP, AFP, the UN, ESA and public broadcasters."

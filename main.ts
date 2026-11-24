@@ -21,7 +21,8 @@ const SOURCE = join(HERE, 'entry.png');
 
 // The grader runs this inside its own container and sets MAKEFUN_OUTPUT_DIR
 // to the directory it collects from. Outside the grader the same variable
-// lets a person point the program somewhere of their own choosing.
+// lets a person point the program somewhere of their own choosing; when it is
+// absent or blank the grader's default, /output, is used.
 const OUTPUT_DIR = process.env['MAKEFUN_OUTPUT_DIR']?.trim() || '/output';
 const DESTINATION = join(OUTPUT_DIR, 'entry.png');
 
